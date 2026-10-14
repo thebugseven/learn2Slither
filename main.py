@@ -3,53 +3,11 @@ from src.interpreter.vision import VisionInterpreter
 from src.interpreter.state_encoder import StateEncoder
 from src.agent.q_table import QTableAgent
 from src.agent.rewards import RewardSystem
+from src.agent.dqn_agent import DQNAgent
+from src.parser import parse_args
+import numpy as np
 
 from collections import Counter
-
-
-def evaluate(agent, sessions=100):
-    board = Board()
-    interpreter = VisionInterpreter(board)
-    encoder = StateEncoder()
-
-    total_steps = 0
-    total_max_length = 0
-    successes = 0
-
-    for _ in range(sessions):
-        board.reset()
-
-        state = encoder.encode(interpreter.observe())
-        max_length = board.snake.length
-
-        for _ in range(500):
-            action = agent.choose_action(
-                state,
-                training=False,
-            )
-
-            result = board.step(action)
-
-            max_length = max(max_length, result.length)
-
-            if result.done:
-                break
-
-            state = encoder.encode(interpreter.observe())
-
-        total_steps += board.steps
-        total_max_length += max_length
-
-        if max_length >= 10:
-            successes += 1
-
-    print(f"Evaluation over {sessions} episodes")
-    print(f"Average steps: {total_steps / sessions:.2f}")
-    print(
-        f"Average max length: "
-        f"{total_max_length / sessions:.2f}"
-    )
-    print(f"Success rate: {100 * successes / sessions:.2f}%")
 
 
 def train(sessions: int = 1000):
@@ -115,6 +73,7 @@ def train(sessions: int = 1000):
             "red": events[StepEvent.RED_APPLE],
             "wall": events[StepEvent.WALL_COLLISION],
             "body": events[StepEvent.BODY_COLLISION],
+            "total_steps": board.steps,
             
         })
 
@@ -137,12 +96,27 @@ def train(sessions: int = 1000):
                 f"Epsilon: {agent.epsilon:.3f} | "
                 f"Q-States: {len(agent.q_table)}"
             )
+            evaluate(agent, sessions=100)
 
             
     return agent, history
 
+
 if __name__ == "__main__":
-    agent, history = train(10000)
-    evaluate(agent, sessions=1000)
+    args = parse_args()
+
+    agent = DQNAgent()
+
+    if args.load:
+        agent.load(args.load_model)
+
+    if args.dontlearn:
+        evaluate(agent, sessions=args.sessions, verbose=True)
+    else:
+        agent, history = train_dqn(args.sessions, agent=agent)
+
+        if args.save:
+            agent.save(args.save)
+
 
 

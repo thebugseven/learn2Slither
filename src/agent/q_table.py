@@ -49,7 +49,11 @@ class QTableAgent:
 
         return self.q_table[key]
 
-    def choose_action(self, state: np.ndarray, training: bool = True) -> Direction:
+    def choose_action(
+            self,
+            state: np.ndarray,
+            training: bool = True
+            ) -> Direction:
         if training and self.rng.random() < self.epsilon:
             return self.rng.choice(self.ACTIONS)
 
@@ -78,7 +82,9 @@ class QTableAgent:
 
         if not done:
             if next_state is None:
-                raise ValueError("next_state cannot be None when done is False.")
+                raise ValueError(
+                    "next_state cannot be None when done is False."
+                    )
             next_q_values = self._get_q_values(next_state)
             target += self.gamma * np.max(next_q_values)
 

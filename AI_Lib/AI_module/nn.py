@@ -127,6 +127,7 @@ class Dense(Layer):
         self.input = None
         self.dW = None
         self.db = None
+        self.adam_t = 0
 
     def forward(self, x):
         x = np.asarray(x, dtype=float)
@@ -203,6 +204,8 @@ class Conv2D(Layer):
                 self.activation = Softmax()
             case _:
                 self.activation = None
+
+        self.adam_t = 0
 
     def forward(self, x):
         self.input = x
@@ -315,10 +318,12 @@ class Adam(Optimizer):
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
-        self.t = 0
+
 
     def init_layer(self, layer):
         if not hasattr(layer, "mW"):
+            layer.adam_t = 0
+
             layer.mW = np.zeros_like(layer.W)
             layer.vW = np.zeros_like(layer.W)
             layer.mb = np.zeros_like(layer.b)
@@ -326,7 +331,7 @@ class Adam(Optimizer):
 
     def update(self, layer):
         self.init_layer(layer)
-        self.t += 1
+        layer.adam_t += 1
 
         layer.mW = self.beta1 * layer.mW + (1 - self.beta1) * layer.dW
         layer.vW = self.beta2 * layer.vW + (1 - self.beta2) * (layer.dW ** 2)
@@ -334,11 +339,11 @@ class Adam(Optimizer):
         layer.mb = self.beta1 * layer.mb + (1 - self.beta1) * layer.db
         layer.vb = self.beta2 * layer.vb + (1 - self.beta2) * (layer.db ** 2)
 
-        mW_hat = layer.mW / (1 - self.beta1 ** self.t)
-        vW_hat = layer.vW / (1 - self.beta2 ** self.t)
+        mW_hat = layer.mW / (1 - self.beta1 ** layer.adam_t)
+        vW_hat = layer.vW / (1 - self.beta2 ** layer.adam_t)
 
-        mb_hat = layer.mb / (1 - self.beta1 ** self.t)
-        vb_hat = layer.vb / (1 - self.beta2 ** self.t)
+        mb_hat = layer.mb / (1 - self.beta1 ** layer.adam_t)
+        vb_hat = layer.vb / (1 - self.beta2 ** layer.adam_t)
 
         layer.W -= self.lr * mW_hat / (np.sqrt(vW_hat) + self.eps)
         layer.b -= self.lr * mb_hat / (np.sqrt(vb_hat) + self.eps)
@@ -389,6 +394,61 @@ class BinaryCrossEntropyLoss:
         )
 
 
+class MSELoss:
+    def __init(self):
+        self.y_pred = None
+        self.y_true = None
+
+    def forward(self, y_pred, y_true):
+        self.y_pred = np.asarray(y_pred, dtype=float)
+        self.y_true = np.asarray(y_true, dtype=float)
+
+        if self.y_pred.shape != self.y_true.shape:
+            raise ValueError(
+                f"Shape mismatch: y_pred {self.y_pred.shape} and y_true {self.y_true.shape} must have the same shape."
+            )
+
+        return np.mean((self.y_pred - self.y_true) ** 2)
+
+    def backward(self):
+        n_outputs = self.y_pred.shape[-1]
+
+        return 2.0 * (self.y_pred - self.y_true) / n_outputs
+
+
+class HuberLoss:
+    def __init__(self, delta=1.0):
+        if delta <= 0:
+            raise ValueError("Delta must be a positive value.")
+
+        self.delta = delta
+        self.error = None
+
+    def forward(self, y_pred, y_true):
+        y_pred = np.asarray(y_pred, dtype=float)
+        y_true = np.asarray(y_true, dtype=float)
+
+        if y_pred.shape != y_true.shape:
+            raise ValueError(
+                f"Shape mismatch: y_pred {y_pred.shape} and y_true {y_true.shape} must have the same shape."
+            )
+
+        self.error = y_pred - y_true
+        abs_error = np.abs(self.error)
+
+        loss = np.where(abs_error <= self.delta, 0.5 * self.error ** 2, self.delta * (abs_error - 0.5 * self.delta))
+
+        return np.mean(loss)
+
+    def backward(self):
+        if self.error is None:
+            raise ValueError("Must call forward() before backward().")
+
+        n_outputs = self.error.shape[-1]
+
+        grad = np.clip(self.error, -self.delta, self.delta) / n_outputs
+        return grad
+
 # ==============================
 # Neural Network
 # ==============================
@@ -397,10 +457,8 @@ class Sequential:
     def __init__(self, optimizer=None, lr=0.001):
         self.layers = []
         if optimizer is None or optimizer == "sgd":
-            print("Using SGD optimizer with learning rate:", lr)
             self.optimizer = SGD(lr=lr)
         elif optimizer == 'adam':
-            print("Using Adam optimizer with learning rate:", lr)
             self.optimizer = Adam(lr=lr)
         else:
             raise ValueError("Unsupported optimizer. Please choose 'sgd' or 'adam'.")
